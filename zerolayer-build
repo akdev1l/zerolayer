@@ -1,0 +1,17 @@
+#!/bin/bash
+
+main() {
+
+    podman run --rm --detach \
+        --name zerolayer-registry \
+        -v zerolayer-storage:/var/lib/registry \
+        -p 5000:5000 registry
+
+    podman build -t zerolayer:latest .
+    podman push \
+        --tls-verify=false \
+        zerolayer:latest \
+        localhost:5000/zerolayer:latest
+}
+
+main "$@"

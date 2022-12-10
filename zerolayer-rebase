@@ -1,0 +1,18 @@
+#!/bin/bash
+
+main() {
+
+    registry_running="$(podman inspect zerolayer-registry | jq '.[].State.Running')"
+
+    if [ "${registry_running}" != "true" ]; then
+        podman run --rm --detach \
+            --name zerolayer-registry \
+            -v zerolayer-storage:/var/lib/registry \
+            -p 5000:5000 registry
+    fi
+
+    rpm-ostree rebase --experimental \
+        ostree-unverified-registry:localhost:5000/zerolayer:latest
+}
+
+main "$@"
