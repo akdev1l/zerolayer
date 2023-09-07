@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "zerolayer"
+version = "0.1.0"
+description = ""
+authors = ["Alex Diaz <alex@akdev.xyz>"]
+readme = "README.md"
+packages = [{include = "zerolayer", from = "src"}]
+
+
+[tool.poetry.scripts]
+zerolayer = "zerolayer.cli:main"
+
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

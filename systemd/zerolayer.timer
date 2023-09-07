@@ -1,0 +1,9 @@
+[Unit]
+Description=Rebuild your image to keep you up to date.
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,6 @@
+[Unit]
+Description=Build a local image to help keep your SilverBlue installation at zero layers.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/zerolayer
