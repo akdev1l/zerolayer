@@ -29,17 +29,14 @@ def build_image(
         containerfile: Path = CONTAINERFILE_PATH,
         output_dir: Path = IMAGE_DIR):
     if (app_state["dry_run"]):
-        logging.info(f"{DRY_RUN_PREFIX} Create \"{
-                     IMAGE_DIR}\" and parent directories")
+        logging.info(f"{DRY_RUN_PREFIX} Create \"{IMAGE_DIR}\" and parent directories")  # noqa: E501
     else:
-        logging.warning(f"{DEFAULT_PREFIX} Creating \"{
-            IMAGE_DIR}\" and parent directories")
+        logging.warning(f"{DEFAULT_PREFIX} Creating \"{IMAGE_DIR}\" and parent directories")  # noqa: E501
         if (not output_dir.exists()):
             try:
                 output_dir.mkdir(parents=True)
             except PermissionError:
-                logging.fatal(f"Could not create {
-                              output_dir} due to permission errors. Are you not root?")  # noqa: E501
+                logging.fatal(f"Could not create {output_dir} due to permission errors. Are you not root?")  # noqa: E501
                 exit(1)
 
     if (app_state["dry_run"]):
