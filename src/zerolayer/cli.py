@@ -10,8 +10,8 @@ app = typer.Typer()
 app_state = {"dry_run": False}
 
 IMAGE_DIR = Path(os.environ.get("ZEROLAYER_IMAGE_DIR", "/var/cache/zerolayer"))
-CONTAINERFILE_DIR = Path(os.environ.get(
-    "ZEROLAYER_CONTAINERFILE_DIR", "/etc/zerolayer"))
+CONTAINERFILE_PATH = Path(os.environ.get(
+    "ZEROLAYER_CONTAINERFILE_DIR", "/etc/zerolayer/Containerfile"))
 
 DEFAULT_PREFIX = "[ZEROLAYER]"
 DRY_RUN_PREFIX = "[DRY_RUN]"
@@ -26,7 +26,7 @@ def get_current_image() -> str:
 
 @app.command()
 def build_image(
-        containerfile: Path = CONTAINERFILE_DIR,
+        containerfile: Path = CONTAINERFILE_PATH,
         output_dir: Path = IMAGE_DIR):
     if (app_state["dry_run"]):
         logging.info(f"{DRY_RUN_PREFIX} Create \"{
@@ -50,7 +50,7 @@ def build_image(
         sp.run(CLEANUP_CMD)
 
     if (app_state["dry_run"]):
-        logging.info(f"{DRY_RUN_PREFIX} Create oci archive in {output_dir}")
+        logging.info(f"{DRY_RUN_PREFIX} Create oci archive in {output_dir} using {containerfile}")  # noqa: E501
     else:
         logging.warning(
             f"{DEFAULT_PREFIX} Creating oci archive in {output_dir}")
@@ -75,14 +75,16 @@ def rebase_to_image():
 @app.callback()
 def config(quiet: bool = False, dry_run: bool = False):
     logging.basicConfig(format="", level=logging.NOTSET)
+
     if quiet:
         logging.getLogger().setLevel(logging.CRITICAL)
+
     app_state["dry_run"] = dry_run
 
 
 @app.command()
 def all(rebase: bool = True) -> int:
-    build_image(CONTAINERFILE_DIR, IMAGE_DIR)
+    build_image(CONTAINERFILE_PATH, IMAGE_DIR)
     if (rebase):
         rebase_to_image()
 
