@@ -7,8 +7,8 @@ import logging
 import os
 import datetime
 import math
-from typing import List
 from rich.prompt import Prompt
+import hashlib
 
 app = typer.Typer()
 app_state = {"dry_run": False}
@@ -19,9 +19,12 @@ CONTAINERFILE_PATH = Path(os.environ.get(
 
 DEFAULT_PREFIX = "[ZEROLAYER]"
 DRY_RUN_PREFIX = "[DRY_RUN]"
-IMAGE_ARCHIVE_PATH = Path(f"{IMAGE_DIR}/current_image.tar.gz")
 CURRENT_ENVIRONMENT_NAME = "current"
 GENERIC_COOL_NAME_FOR_IMAGES: str = "boot_env"
+
+
+def generate_hash_from_date(s: str):
+    return int(hashlib.sha256(s.encode('utf-8')).hexdigest(), 16) % 10**8
 
 
 def convert_size(size_bytes):
@@ -46,7 +49,7 @@ def list_environments(cache_dir: Path = IMAGE_DIR, max_shown: int = 0) -> None:
         return
 
     envs_found = 0
-    # e.g.: boot_env.1.tar.gz boot_env.2.tar.gz boot_env.current.tar.gz
+    # e.g.: boot_env.1HASH.tar.gz boot_env.2HASH.tar.gz boot_env.current.tar.gz
     for path in Path(cache_dir).iterdir():
         if envs_found == max_shown and max_shown != 0:
                 return
@@ -74,7 +77,7 @@ def clear(cache_dir: Path = IMAGE_DIR, all: bool = False, no_confirm: bool = Fal
         logging.fatal("Failed to find image directory")
         return
 
-    valid_files: List[Path] = [] 
+    valid_files: list[Path] = [] 
     for path in Path(cache_dir).iterdir():
         full_file_name = path.name.split(".")
         if GENERIC_COOL_NAME_FOR_IMAGES in full_file_name[0]:
@@ -139,7 +142,6 @@ def clear(cache_dir: Path = IMAGE_DIR, all: bool = False, no_confirm: bool = Fal
     exit(1)
 
 
-
 @app.command()
 def build(
         containerfile: Path = CONTAINERFILE_PATH,
@@ -148,7 +150,9 @@ def build(
     if app_state["dry_run"]:
         logging.info(f"{DRY_RUN_PREFIX} Create \"{cache_dir}\" and parent directories")
         logging.info(f"{DRY_RUN_PREFIX} Create oci archive in {cache_dir} using {containerfile}")
-        exit(0)
+        logging.info(f"{DRY_RUN_PREFIX} Unlinking current environment")
+        logging.info(f"{DRY_RUN_PREFIX} Symlinking generated file to current")
+        return 
 
     if not cache_dir.exists():
         logging.warning(f"{DEFAULT_PREFIX} Creating \"{cache_dir}\" and parent directories")
@@ -157,26 +161,39 @@ def build(
         except PermissionError:
             logging.fatal(f"Could not create {cache_dir} due to permission errors. Are you not root?")
             exit(1)
+        except OSError:
+            logging.fatal(f"Failed creating {cache_dir}")
+            exit(1)
+
+    TARGET_FILE_NAME = f"{cache_dir.resolve()}/{GENERIC_COOL_NAME_FOR_IMAGES}.{generate_hash_from_date(str(datetime.datetime.now()))}.tar"
 
     logging.warning(
         f"{DEFAULT_PREFIX} Creating oci archive in {cache_dir}")
     sp.run(["buildah",
             "bud",
-            "-t",
-            f"oci-archive:{cache_dir}",
+            "-o",
+            f"type=tar,dest={TARGET_FILE_NAME}",
             containerfile])
 
+    logging.warning(f"{DEFAULT_PREFIX} Unlinking current environment")
+    for file in Path(cache_dir).iterdir():
+        full_file_name = file.name.split(".")
+        if GENERIC_COOL_NAME_FOR_IMAGES in full_file_name[0] and full_file_name[1] == CURRENT_ENVIRONMENT_NAME:
+            file.unlink()
+
+    logging.warning("Symlinking generated file to current")
+    Path(f"{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{CURRENT_ENVIRONMENT_NAME}.tar").symlink_to(TARGET_FILE_NAME)
 
 @app.command()
-def rebase() -> None:
-    FULL_IMAGE: str = f"ostree-unverified-image:oci-archive:{IMAGE_ARCHIVE_PATH}"
+def rebase(cache_dir: Path = IMAGE_DIR) -> None:
+    FULL_IMAGE: str = f"ostree-unverified-image:oci-archive:{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{CURRENT_ENVIRONMENT_NAME}.tar"
     
-    if (app_state["dry_run"]):
+    if app_state["dry_run"]:
         logging.info(f"{DRY_RUN_PREFIX} Rebase to {FULL_IMAGE}")
         return
     
     logging.warning(f"{DEFAULT_PREFIX} Rebasing to {FULL_IMAGE}")
-    if (get_current_image() != FULL_IMAGE):
+    if get_current_image() != FULL_IMAGE:
         sp.run(["rpm-ostree", "rebase", FULL_IMAGE])
 
 
