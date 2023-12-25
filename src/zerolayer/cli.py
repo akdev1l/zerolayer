@@ -7,6 +7,8 @@ import logging
 import os
 import datetime
 import math
+from typing import List
+from rich.prompt import Prompt
 
 app = typer.Typer()
 app_state = {"dry_run": False}
@@ -38,14 +40,16 @@ def get_current_image() -> str:
 
 
 @app.command()
-def list_images(cache_dir: Path = IMAGE_DIR) -> None:
+def list_environments(cache_dir: Path = IMAGE_DIR, max_shown: int = 0) -> None:
     if not Path(cache_dir).exists():
         logging.fatal("Failed to find image directory")
         return
 
-    were_envs_found = False
+    envs_found = 0
     # e.g.: boot_env.1.tar.gz boot_env.2.tar.gz boot_env.current.tar.gz
     for path in Path(cache_dir).iterdir():
+        if envs_found == max_shown and max_shown != 0:
+                return
         full_file_name = path.name.split(".")
         if GENERIC_COOL_NAME_FOR_IMAGES in full_file_name[0]:
             if not full_file_name[1].isnumeric() and not full_file_name[1] == CURRENT_ENVIRONMENT_NAME:
@@ -53,15 +57,16 @@ def list_images(cache_dir: Path = IMAGE_DIR) -> None:
                 return
             
             logging.warning(f"Environment {full_file_name[1]}:\n\tSize: {convert_size(path.stat().st_size)}\n\tCreation Time: {datetime.datetime.fromtimestamp(path.stat().st_mtime)}")
-            were_envs_found = True
+            
+            envs_found += 1
 
-    if not were_envs_found:
+    if envs_found == 0:
         logging.warning("Could not find any valid environments")
 
 
 @app.command()
-def clear_images(cache_dir: Path = IMAGE_DIR):
-    if app_state["dry_run"]:
+def clear(cache_dir: Path = IMAGE_DIR, all: bool = False, no_confirm: bool = False):
+    if app_state["dry_run"] and no_confirm is False:
         logging.info(f"{DRY_RUN_PREFIX} Delete everything from {cache_dir}")
         exit(0)
 
@@ -69,16 +74,74 @@ def clear_images(cache_dir: Path = IMAGE_DIR):
         logging.fatal("Failed to find image directory")
         return
 
+    valid_files: List[Path] = [] 
     for path in Path(cache_dir).iterdir():
         full_file_name = path.name.split(".")
         if GENERIC_COOL_NAME_FOR_IMAGES in full_file_name[0]:
             if not full_file_name[1].isnumeric() and not full_file_name[1] == CURRENT_ENVIRONMENT_NAME:
                 continue
     
-            path.unlink(missing_ok=True)
+            valid_files.append(path)
+
+    if valid_files == []:
+        logging.warning("Could not find any environment")
+        return
+
+    if all:
+        logging.warning("Affected environments:\n\t" + "\n\t".join([file.name for file in valid_files]) + "\n")
+        
+        are_you_sure: bool = False 
+        if no_confirm:
+            are_you_sure = True
+        else:
+            are_you_sure = typer.confirm("Are you sure you want to delete all environments?", abort=True)
+   
+        if not are_you_sure:
+            raise typer.Abort()
+
+        for path in valid_files:
+            path.unlink()
+        return
+
+    ENV_LIST = 3
+    list_environments(cache_dir, ENV_LIST)
+    print(f"Results truncated to {ENV_LIST} results.")
+
+    selected_env: str = Prompt.ask("\nWhich environment do you want to delete?")
+
+    deleting_message = "Are you sure you want to delete the selected environment?"
+
+    if selected_env == CURRENT_ENVIRONMENT_NAME:
+        deleting_message = "Are you sure you want to delete the current environment symlink? This will not delete the actual file"
+         
+    r_you_sure: bool = False 
+    if no_confirm:
+        r_you_sure = True
+    else:
+        r_you_sure = typer.confirm(deleting_message, abort=True)
+   
+    if not r_you_sure:
+        raise typer.Abort()
+
+    logging.warning("Deleting selected environment")
+    
+    for file in valid_files:
+        if file.name.split(".")[1] == selected_env:
+            try:
+                file.unlink()
+            except OSError:
+                logging.fatal("Failed deleting selected environment")
+                exit(1)
+            logging.warning("Environment deleted successfully")
+            return
+    
+    logging.warning("Could not delete selected environment")
+    exit(1)
+
+
 
 @app.command()
-def build_image(
+def build(
         containerfile: Path = CONTAINERFILE_PATH,
         cache_dir: Path = IMAGE_DIR
     ):
@@ -105,7 +168,7 @@ def build_image(
 
 
 @app.command()
-def rebase_to_image() -> None:
+def rebase() -> None:
     FULL_IMAGE: str = f"ostree-unverified-image:oci-archive:{IMAGE_ARCHIVE_PATH}"
     
     if (app_state["dry_run"]):
@@ -125,15 +188,6 @@ def app_config(quiet: bool = False, dry_run: bool = False):
         logging.getLogger().setLevel(logging.CRITICAL)
 
     app_state["dry_run"] = dry_run
-
-
-@app.command()
-def all(rebase: bool = True) -> int:
-    build_image(CONTAINERFILE_PATH, IMAGE_DIR)
-    if (rebase):
-        rebase_to_image()
-
-    return 0
 
 
 def main():
