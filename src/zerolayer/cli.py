@@ -18,8 +18,8 @@ CONTAINERFILE_PATH = Path(os.environ.get(
 DEFAULT_PREFIX = "[ZEROLAYER]"
 DRY_RUN_PREFIX = "[DRY_RUN]"
 IMAGE_ARCHIVE_PATH = Path(f"{IMAGE_DIR}/current_image.tar.gz")
-CLEANUP_CMD = ["rm", "-rf", f"{IMAGE_DIR}/*"]
 CURRENT_ENVIRONMENT_NAME = "current"
+GENERIC_COOL_NAME_FOR_IMAGES: str = "boot_env"
 
 
 def convert_size(size_bytes):
@@ -45,7 +45,6 @@ def list_images(cache_dir: Path = IMAGE_DIR) -> None:
 
     were_envs_found = False
     # e.g.: boot_env.1.tar.gz boot_env.2.tar.gz boot_env.current.tar.gz
-    GENERIC_COOL_NAME_FOR_IMAGES: str = "boot_env"
     for path in Path(cache_dir).iterdir():
         full_file_name = path.name.split(".")
         if GENERIC_COOL_NAME_FOR_IMAGES in full_file_name[0]:
@@ -59,14 +58,32 @@ def list_images(cache_dir: Path = IMAGE_DIR) -> None:
     if not were_envs_found:
         logging.warning("Could not find any valid environments")
 
+
+@app.command()
+def clear_images(cache_dir: Path = IMAGE_DIR):
+    if app_state["dry_run"]:
+        logging.info(f"{DRY_RUN_PREFIX} Delete everything from {cache_dir}")
+        exit(0)
+
+    if not Path(cache_dir).exists():
+        logging.fatal("Failed to find image directory")
+        return
+
+    for path in Path(cache_dir).iterdir():
+        full_file_name = path.name.split(".")
+        if GENERIC_COOL_NAME_FOR_IMAGES in full_file_name[0]:
+            if not full_file_name[1].isnumeric() and not full_file_name[1] == CURRENT_ENVIRONMENT_NAME:
+                continue
+    
+            path.unlink(missing_ok=True)
+
 @app.command()
 def build_image(
         containerfile: Path = CONTAINERFILE_PATH,
-        cache_dir: Path = IMAGE_DIR,
-        delete_cache: bool = False):
+        cache_dir: Path = IMAGE_DIR
+    ):
     if app_state["dry_run"]:
         logging.info(f"{DRY_RUN_PREFIX} Create \"{cache_dir}\" and parent directories")
-        logging.info(f"{DRY_RUN_PREFIX} Delete everything from {cache_dir}")
         logging.info(f"{DRY_RUN_PREFIX} Create oci archive in {cache_dir} using {containerfile}")
         exit(0)
 
@@ -77,11 +94,6 @@ def build_image(
         except PermissionError:
             logging.fatal(f"Could not create {cache_dir} due to permission errors. Are you not root?")
             exit(1)
-
-    if delete_cache:
-        logging.warning(
-            f"{DEFAULT_PREFIX} Deleting everything from {cache_dir}")
-        sp.run(CLEANUP_CMD)
 
     logging.warning(
         f"{DEFAULT_PREFIX} Creating oci archive in {cache_dir}")
