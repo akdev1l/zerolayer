@@ -278,9 +278,12 @@ def switch(cache_dir: Path = IMAGE_DIR,image_hash: str = ""):
         logging.warning("Could not find any environment")
         return
 
-    list_environments(cache_dir, 0, ignore_current=True)
-
-    selected_hash: str = Prompt.ask("\nWhich environment do you want to switch to?", choices=[str(x.name.split(".")[1]) for x in valid_files])
+    
+    if image_hash != "":
+        selected_hash = image_hash
+    else:
+        list_environments(cache_dir, 0, ignore_current=True)
+        selected_hash = Prompt.ask("\nWhich environment do you want to switch to?", choices=[str(x.name.split(".")[1]) for x in valid_files])
 
     CURRENT_ENV_FILE = Path(f"{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{CURRENT_ENVIRONMENT_NAME}.tar")   
 
