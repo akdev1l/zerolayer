@@ -20,7 +20,7 @@ app_state = {"dry_run": False}
 
 IMAGE_DIR = Path(os.environ.get("ZEROLAYER_IMAGE_DIR", "/var/cache/zerolayer"))
 CONTAINERFILE_PATH = Path(
-    os.environ.get("ZEROLAYER_CONTAINERFILE_DIR", "/etc/zerolayer/Containerfile")
+    os.environ.get("ZEROLAYER_CONTAINERFILE_DIR", "/etc/zerolayer/")
 )
 
 CYAN_COLOR = "\033[96m"
@@ -188,14 +188,14 @@ def clear(
 
 @app.command()
 def build(
-    containerfile: Path = CONTAINERFILE_PATH,
+    containerfile_path: Path = CONTAINERFILE_PATH,
     cache_dir: Path = IMAGE_DIR,
     build_arg: Annotated[list[str], typer.Option()] = [],
 ):
     if app_state["dry_run"]:
         logging.info(f'{DRY_RUN_PREFIX} Create "{cache_dir}" and parent directories')
         logging.info(
-            f"{DRY_RUN_PREFIX} Create oci archive in {cache_dir} using {containerfile}"
+            f"{DRY_RUN_PREFIX} Create oci archive in {cache_dir} using {containerfile_path}"
         )
         logging.info(f"{DRY_RUN_PREFIX} Unlinking current environment")
         logging.info(f"{DRY_RUN_PREFIX} Symlinking generated file to current")
@@ -216,7 +216,7 @@ def build(
             logging.fatal(f"Failed creating {cache_dir}")
             exit(1)
 
-    TARGET_FILE_NAME = f"{cache_dir.resolve()}/{GENERIC_COOL_NAME_FOR_IMAGES}.{generate_hash_from_date(str(datetime.datetime.now()))}.tar"
+    TARGET_FILE_NAME = f"{cache_dir.resolve()}/{GENERIC_COOL_NAME_FOR_IMAGES}.{generate_hash_from_date(str(datetime.datetime.now()))}.tar.gz"
 
     logging.warning(f"{DEFAULT_PREFIX} Creating oci archive in {cache_dir}")
 
@@ -225,10 +225,10 @@ def build(
         build_args = ["--build-arg=" + arg for arg in build_arg]
 
     try:
-        buildah_run = sp.run(
-            ["buildah", "bud", "-o"]
+        build_cmd = sp.run(
+            ["podman", "build",]
             + build_args
-            + [f"type=tar,dest={TARGET_FILE_NAME}", containerfile]
+            + ["-t",f"oci-archive:{TARGET_FILE_NAME}", containerfile_path]
         )
     except FileNotFoundError:
         logging.fatal(
@@ -236,7 +236,7 @@ def build(
         )
         exit(1)
 
-    if buildah_run.returncode != 0:
+    if build_cmd.returncode != 0:
         logging.fatal(f"{DEFAULT_PREFIX} ")
         exit(1)
 
@@ -295,7 +295,7 @@ def rebase(cache_dir: Path = IMAGE_DIR, no_confirm: bool = False) -> None:
 @app.command()
 def init(
     url: str = "https://github.com/ublue-os/startingpoint",
-    target_dir: Path = CONTAINERFILE_PATH.parents[0],
+    target_dir: Path = CONTAINERFILE_PATH,
     no_confirm: bool = False,
 ):
     if app_state["dry_run"]:
