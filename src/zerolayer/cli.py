@@ -259,6 +259,7 @@ def build(
 def rebase(cache_dir: Path = IMAGE_DIR, no_confirm: bool = False) -> None:
     if app_state["dry_run"]:
         logging.info(f"{DRY_RUN_PREFIX} Rebase to selected image or current (default)")
+        switch(cache_dir, "EXAMPLE")
         return
 
     valid_files: list[Path] = get_valid_image_files(cache_dir)
@@ -287,6 +288,8 @@ def rebase(cache_dir: Path = IMAGE_DIR, no_confirm: bool = False) -> None:
     if rpm_ostree_call.returncode != 0:
         logging.fatal(f"{DEFAULT_PREFIX} Failed rebasing to selected image. Consult journalctl for more logs")
         exit(1)
+
+    switch(cache_dir, selected_env)
 
 
 @app.command()
@@ -337,7 +340,6 @@ def init(
 @app.command()
 def switch(cache_dir: Path = IMAGE_DIR, image_hash: str = ""):
     if app_state["dry_run"]:
-        logging.info(f"{DRY_RUN_PREFIX} List and choose environments")
         logging.info(f"{DRY_RUN_PREFIX} Unlink old current environment")
         logging.info(f"{DRY_RUN_PREFIX} Link selected environment to current")
         return
