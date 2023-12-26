@@ -1,6 +1,6 @@
 # zerolayer - local native OCI/OSTree customizations
 
-Zerolayer is anutility that allows the user to build a custom OCI image that is bootable by ostree and allows us to rebase to such image therefore allowing to us to customize the system without using `rpm-ostree install` or to depend in a registry to do so.
+Zerolayer is an utility that allows the user to build a custom OCI image that is bootable by ostree and allows us to rebase to such image therefore allowing to us to customize the system without using `rpm-ostree install` or to depend in a registry to do so.
 
 The workflow is simple:
 
@@ -12,13 +12,11 @@ After this workflow is complete and the user reboots their machine they will be 
 
 ## Using the CLI interface
 
-You can interact with this by using the command-line interface's options.
-
-Both steps of making and rebasing to an image are separate commands, you can use `all` to run everything at once. `--dry-run` and `--quiet` options are for QoL and testing.
+You can interact with this by using the command-line interface's options in order to Create, List, Delete, Rebase, and Switch boot environments. You can also use `--dry-run` and `--quiet` for QoL or testing. 
 
 ## Installing
 
-Use our justfile for installing the project.
+Use the justfile for installing.
 
 ```
 just install
