@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 from pathlib import Path
-from rich.prompt import Prompt
-from rich.console import Console
-from rich.table import Table
+from rich.prompt import Prompt # type: ignore
+from rich.console import Console # type: ignore
+from rich.table import Table # type: ignore
+from typing_extensions import Annotated
 import subprocess as sp
 import json
 import shutil
-import typer
+import typer # type: ignore
 import logging
 import os
 import datetime
@@ -152,7 +153,8 @@ def clear(cache_dir: Path = IMAGE_DIR, all: bool = False, no_confirm: bool = Fal
 @app.command()
 def build(
         containerfile: Path = CONTAINERFILE_PATH,
-        cache_dir: Path = IMAGE_DIR
+        cache_dir: Path = IMAGE_DIR,
+        build_arg: Annotated[list[str], typer.Option()] = []
     ):
     if app_state["dry_run"]:
         logging.info(f"{DRY_RUN_PREFIX} Create \"{cache_dir}\" and parent directories")
@@ -176,10 +178,16 @@ def build(
 
     logging.warning(
         f"{DEFAULT_PREFIX} Creating oci archive in {cache_dir}")
+    
+    build_args: list[str] = []
+    if build_arg != []: 
+        build_args = ["--build-arg=" + arg for arg in build_arg]
+    
     sp.run(["buildah",
             "bud",
-            "-o",
-            f"type=tar,dest={TARGET_FILE_NAME}",
+            "-o"] 
+            + build_args +
+            [f"type=tar,dest={TARGET_FILE_NAME}",
             containerfile])
 
     logging.warning(f"{DEFAULT_PREFIX} Unlinking current environment")
