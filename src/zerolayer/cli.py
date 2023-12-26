@@ -215,6 +215,7 @@ def build(
     containerfile_path: Path = CONTAINERFILE_PATH,
     cache_dir: Path = IMAGE_DIR,
     build_arg: Annotated[list[str], typer.Option()] = [],
+    tag_name: Annotated[str, typer.Option(help="Tag that will be used for the new image")] = "",
 ):
     """
     Build a boot environment from CONTAINERFILE_PATH
@@ -245,9 +246,21 @@ def build(
             logging.fatal(f"Failed creating {cache_dir}")
             raise typer.Exit(1)
 
-    TARGET_FILE_NAME = f"{cache_dir.resolve()}/{GENERIC_COOL_NAME_FOR_IMAGES}.{generate_hash_from_date(str(datetime.datetime.now()))}.{IMAGE_ARCHIVE_EXTENSION}"
 
-    logging.warning(f"{DEFAULT_PREFIX} Creating oci archive in {cache_dir}")
+    image_tag: str 
+
+    if tag_name != "":
+        image_tag = tag_name
+    else:
+        image_tag = generate_hash_from_date(str(datetime.datetime.now()))
+
+    TARGET_FILE_NAME = f"{cache_dir.resolve()}/{GENERIC_COOL_NAME_FOR_IMAGES}.{image_tag}.{IMAGE_ARCHIVE_EXTENSION}"
+
+    if Path(TARGET_FILE_NAME).exists():
+        logging.fatal(f"{DEFAULT_PREFIX} Image {image_tag} already exists in {cache_dir.resolve()}")
+        return typer.Exit(1)
+
+    logging.warning(f"{DEFAULT_PREFIX} Creating oci archive in {cache_dir.resolve()}")
 
     build_args: list[str] = []
     if build_arg != []:
@@ -293,7 +306,7 @@ def build(
 def rebase(
     cache_dir: Path = IMAGE_DIR,
     no_confirm: Annotated[bool, typer.Option("--no-confirm")] = False,
-    image_hash: str = "",
+    image_tag: str = "",
 ) -> None:
     """
     Rebase your system over to the chosen boot environment
@@ -403,7 +416,7 @@ def init(
 
 
 @app.command()
-def switch(cache_dir: Annotated[Path, typer.Option("--cache-dir", "-c")] = IMAGE_DIR, image_hash: str = ""):
+def switch(cache_dir: Annotated[Path, typer.Option("--cache-dir", "-c")] = IMAGE_DIR, image_tag: str = ""):
     """
     Switch the current environment symlink over to selected image
     """
@@ -417,8 +430,8 @@ def switch(cache_dir: Annotated[Path, typer.Option("--cache-dir", "-c")] = IMAGE
         logging.warning(f"{DEFAULT_PREFIX} Could not find any environment")
         return
 
-    if image_hash != "":
-        selected_hash = image_hash
+    if image_tag != "":
+        selected_hash = image_tag
     else:
         list_environments(cache_dir, 0, ignore_current=True)
         try:
