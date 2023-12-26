@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 from pathlib import Path
-from rich.prompt import Prompt  # type: ignore
 from rich.console import Console  # type: ignore
 from rich.table import Table  # type: ignore
 from typing_extensions import Annotated
@@ -13,7 +12,7 @@ import os
 import datetime
 import math
 import hashlib
-import inquirer # type: ignore
+import inquirer  # type: ignore
 
 app = typer.Typer()
 app_state = {"dry_run": False}
@@ -39,7 +38,9 @@ def get_valid_image_files(cache_dir: Path, no_current: bool = True) -> list[Path
     for path in Path(cache_dir).iterdir():
         full_file_name = path.name.split(".")
         if GENERIC_COOL_NAME_FOR_IMAGES in full_file_name[0]:
-            if (no_current and full_file_name[1] == CURRENT_ENVIRONMENT_NAME) or path.is_dir():
+            if (
+                no_current and full_file_name[1] == CURRENT_ENVIRONMENT_NAME
+            ) or path.is_dir():
                 continue
 
             valid_files.append(path)
@@ -65,10 +66,17 @@ def get_current_image() -> str:
     return json.loads(out)["deployments"][0]["container-image-reference"]
 
 
-@app.command()
+@app.command(name="list")
 def list_environments(
-    cache_dir: Path = IMAGE_DIR, max_shown: int = 0, ignore_current: bool = False
+    cache_dir: Path = IMAGE_DIR,
+    max_shown: int = 0,
+    ignore_current: Annotated[
+        bool, typer.Option("--ignore-current", help="Ignores the Current selected environment")
+    ] = False,
 ) -> None:
+    """
+    List all available environments + optionally the latest (current) one in a table.
+    """
     if not Path(cache_dir).exists():
         logging.fatal(f"{DEFAULT_PREFIX} Failed to find image directory")
         return
@@ -107,13 +115,20 @@ def list_environments(
 @app.command()
 def clear(
     cache_dir: Path = IMAGE_DIR,
-    all: bool = False,
-    no_confirm: bool = False,
-    list_size: int = 0,
+    all: Annotated[bool, typer.Option(help="Selects all environments")] = False,
+    no_confirm: Annotated[bool, typer.Option("--no-confirm")] = False,
+    list_size: Annotated[
+        int, typer.Option(help="List size for selecting environment")
+    ] = 0,
 ):
+    """
+    Delete selected (or all) environments in selected cache directory
+    """
     if app_state["dry_run"]:
-        logging.info(f"{DRY_RUN_PREFIX} Delete everything (or selected image) from {cache_dir}")
-        exit(0)
+        logging.info(
+            f"{DRY_RUN_PREFIX} Delete everything (or selected image) from {cache_dir}"
+        )
+        return
 
     if not Path(cache_dir).exists():
         logging.fatal(f"{DEFAULT_PREFIX} Failed to find image directory")
@@ -151,9 +166,17 @@ def clear(
     list_environments(cache_dir, list_size, ignore_current=True)
     if list_size > 0:
         logging.warning(f"{DEFAULT_PREFIX} Results truncated to {list_size} results.")
-    
+
     try:
-        selected_env = inquirer.prompt([inquirer.List('environment', message="Which environment do you want to delete?", choices=[str(x.name.split(".")[1]) for x in valid_files])])["environment"]
+        selected_env = inquirer.prompt(
+            [
+                inquirer.List(
+                    "environment",
+                    message="Which environment do you want to delete?",
+                    choices=[str(x.name.split(".")[1]) for x in valid_files],
+                )
+            ]
+        )["environment"]
     except (TypeError, KeyboardInterrupt):
         raise typer.Abort()
 
@@ -183,8 +206,8 @@ def clear(
             logging.warning(f"{DEFAULT_PREFIX} Environment deleted successfully")
             return
 
-    logging.warning(f"{DEFAULT_PREFIX} Could not delete selected environment")
-    exit(1)
+    logging.fatal(f"{DEFAULT_PREFIX} Could not delete selected environment")
+    raise typer.Exit(1)
 
 
 @app.command()
@@ -193,6 +216,11 @@ def build(
     cache_dir: Path = IMAGE_DIR,
     build_arg: Annotated[list[str], typer.Option()] = [],
 ):
+    """
+    Build a boot environment from CONTAINERFILE_PATH
+
+    BUILD_ARG works just like podman --build-args works, you can use it multiple times for multiple arguments
+    """
     if app_state["dry_run"]:
         logging.info(f'{DRY_RUN_PREFIX} Create "{cache_dir}" and parent directories')
         logging.info(
@@ -212,10 +240,10 @@ def build(
             logging.fatal(
                 f"Could not create {cache_dir} due to permission errors. Are you not root?"
             )
-            exit(1)
+            raise typer.Exit(1)
         except OSError:
             logging.fatal(f"Failed creating {cache_dir}")
-            exit(1)
+            raise typer.Exit(1)
 
     TARGET_FILE_NAME = f"{cache_dir.resolve()}/{GENERIC_COOL_NAME_FOR_IMAGES}.{generate_hash_from_date(str(datetime.datetime.now()))}.{IMAGE_ARCHIVE_EXTENSION}"
 
@@ -227,19 +255,24 @@ def build(
 
     try:
         build_cmd = sp.run(
-            ["podman", "build",]
+            [
+                "podman",
+                "build",
+            ]
             + build_args
-            + ["-t",f"oci-archive:{TARGET_FILE_NAME}", containerfile_path]
+            + ["-t", f"oci-archive:{TARGET_FILE_NAME}", containerfile_path]
         )
     except FileNotFoundError:
         logging.fatal(
-            f"{DEFAULT_PREFIX} Failed to run Buildah, do you have it in your PATH?"
+            f"{DEFAULT_PREFIX} Failed to run Podman for building, do you have it in your PATH?"
         )
-        exit(1)
+        raise typer.Exit(1)
 
     if build_cmd.returncode != 0:
-        logging.fatal(f"{DEFAULT_PREFIX} ")
-        exit(1)
+        logging.fatal(
+            f"{DEFAULT_PREFIX} Failed building, check journalctl for other logs"
+        )
+        raise typer.Exit(1)
 
     logging.warning(f"{DEFAULT_PREFIX} Unlinking current environment")
     for file in Path(cache_dir).iterdir():
@@ -257,7 +290,14 @@ def build(
 
 
 @app.command()
-def rebase(cache_dir: Path = IMAGE_DIR, no_confirm: bool = False) -> None:
+def rebase(
+    cache_dir: Path = IMAGE_DIR,
+    no_confirm: Annotated[bool, typer.Option("--no-confirm")] = False,
+    image_hash: str = "",
+) -> None:
+    """
+    Rebase your system over to the chosen boot environment
+    """
     if app_state["dry_run"]:
         logging.info(f"{DRY_RUN_PREFIX} Rebase to selected image or current (default)")
         switch(cache_dir, "EXAMPLE")
@@ -272,7 +312,15 @@ def rebase(cache_dir: Path = IMAGE_DIR, no_confirm: bool = False) -> None:
         selected_env = CURRENT_ENVIRONMENT_NAME
     else:
         try:
-            selected_env = inquirer.prompt([inquirer.List('environment', message="Which environment do you want to rebase to?", choices=[str(x.name.split(".")[1]) for x in valid_files])])["environment"]
+            selected_env = inquirer.prompt(
+                [
+                    inquirer.List(
+                        "environment",
+                        message="Which environment do you want to rebase to?",
+                        choices=[str(x.name.split(".")[1]) for x in valid_files],
+                    )
+                ]
+            )["environment"]
         except (TypeError, KeyboardInterrupt):
             raise typer.Abort()
 
@@ -281,14 +329,24 @@ def rebase(cache_dir: Path = IMAGE_DIR, no_confirm: bool = False) -> None:
 
     logging.warning(f"{DEFAULT_PREFIX} Rebasing to {selected_env}")
     try:
-        rpm_ostree_call = sp.run(["rpm-ostree", "rebase", f"ostree-unverified-image:oci-archive:{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{selected_env}.{IMAGE_ARCHIVE_EXTENSION}"])
+        rpm_ostree_call = sp.run(
+            [
+                "rpm-ostree",
+                "rebase",
+                f"ostree-unverified-image:oci-archive:{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{selected_env}.{IMAGE_ARCHIVE_EXTENSION}",
+            ]
+        )
     except FileNotFoundError:
-        logging.fatal(f"{DEFAULT_PREFIX} Failed finding rpm-ostree, most likely a PATH error.")
-        exit(1)
+        logging.fatal(
+            f"{DEFAULT_PREFIX} Failed finding rpm-ostree, most likely a PATH error."
+        )
+        raise typer.Exit(1)
 
     if rpm_ostree_call.returncode != 0:
-        logging.fatal(f"{DEFAULT_PREFIX} Failed rebasing to selected image. Consult journalctl for more logs")
-        exit(1)
+        logging.fatal(
+            f"{DEFAULT_PREFIX} Failed rebasing to selected image. Consult journalctl for more logs"
+        )
+        raise typer.Exit(1)
 
     if selected_env != CURRENT_ENVIRONMENT_NAME:
         switch(cache_dir, selected_env)
@@ -296,10 +354,15 @@ def rebase(cache_dir: Path = IMAGE_DIR, no_confirm: bool = False) -> None:
 
 @app.command()
 def init(
-    url: str = "https://github.com/ublue-os/startingpoint",
+    url: Annotated[
+        str, typer.Option(help="URL that will be cloned to TARGET_DIR")
+    ] = "https://github.com/ublue-os/startingpoint",
     target_dir: Path = CONTAINERFILE_PATH,
-    no_confirm: bool = False,
+    no_confirm: Annotated[bool, typer.Option("--no-confirm")] = False,
 ):
+    """
+    Initialize a source directory for Zerolayer
+    """
     if app_state["dry_run"]:
         logging.info(f"{DRY_RUN_PREFIX} Delete everything from {target_dir}")
         logging.info(f"{DRY_RUN_PREFIX} Clone {url} to {target_dir}")
@@ -340,7 +403,10 @@ def init(
 
 
 @app.command()
-def switch(cache_dir: Path = IMAGE_DIR, image_hash: str = ""):
+def switch(cache_dir: Annotated[Path, typer.Option("--cache-dir", "-c")] = IMAGE_DIR, image_hash: str = ""):
+    """
+    Switch the current environment symlink over to selected image
+    """
     if app_state["dry_run"]:
         logging.info(f"{DRY_RUN_PREFIX} Unlink old current environment")
         logging.info(f"{DRY_RUN_PREFIX} Link selected environment to current")
@@ -356,7 +422,15 @@ def switch(cache_dir: Path = IMAGE_DIR, image_hash: str = ""):
     else:
         list_environments(cache_dir, 0, ignore_current=True)
         try:
-            selected_hash = inquirer.prompt([inquirer.List('environment', message="Which environment do you want to switch to?", choices=[str(x.name.split(".")[1]) for x in valid_files])])["environment"]
+            selected_hash = inquirer.prompt(
+                [
+                    inquirer.List(
+                        "environment",
+                        message="Which environment do you want to switch to?",
+                        choices=[str(x.name.split(".")[1]) for x in valid_files],
+                    )
+                ]
+            )["environment"]
         except (TypeError, KeyboardInterrupt):
             raise typer.Abort()
 
@@ -380,7 +454,7 @@ def switch(cache_dir: Path = IMAGE_DIR, image_hash: str = ""):
 
     if not found_env:
         logging.fatal(f"{DEFAULT_PREFIX} Failed to find environment")
-        exit(1)
+        raise typer.Exit(1)
 
     CURRENT_ENV_FILE.symlink_to(target_env)
     proper_final_hash = target_env.name.split(".")[1]
@@ -390,7 +464,13 @@ def switch(cache_dir: Path = IMAGE_DIR, image_hash: str = ""):
 
 
 @app.callback()
-def app_config(quiet: bool = False, dry_run: bool = False):
+def app_config(
+    quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Minimal logging")] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Only log what the program would do"),
+    ] = False,
+):
     logging.basicConfig(format="", level=logging.NOTSET)
 
     if quiet:
