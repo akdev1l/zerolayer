@@ -43,7 +43,7 @@ def get_current_image() -> str:
 
 
 @app.command()
-def list_environments(cache_dir: Path = IMAGE_DIR, max_shown: int = 0) -> None:
+def list_environments(cache_dir: Path = IMAGE_DIR, max_shown: int = 0, ignore_current: bool = False) -> None:
     if not Path(cache_dir).exists():
         logging.fatal("Failed to find image directory")
         return
@@ -59,7 +59,11 @@ def list_environments(cache_dir: Path = IMAGE_DIR, max_shown: int = 0) -> None:
                 logging.fatal(f"Invalid naming scheme for file {path.name}")
                 return
             
-            logging.warning(f"Environment {full_file_name[1]}:\n\tSize: {convert_size(path.stat().st_size)}\n\tCreation Time: {datetime.datetime.fromtimestamp(path.stat().st_mtime)}")
+            if ignore_current and full_file_name[1] == CURRENT_ENVIRONMENT_NAME:
+                envs_found += 1
+                continue
+            
+            logging.warning(f"Environment {envs_found}:\n\tHash: {full_file_name[1]}\n\tSize: {convert_size(path.stat().st_size)}\n\tCreation Time: {datetime.datetime.fromtimestamp(path.stat().st_mtime)}")
             
             envs_found += 1
 
@@ -68,7 +72,7 @@ def list_environments(cache_dir: Path = IMAGE_DIR, max_shown: int = 0) -> None:
 
 
 @app.command()
-def clear(cache_dir: Path = IMAGE_DIR, all: bool = False, no_confirm: bool = False):
+def clear(cache_dir: Path = IMAGE_DIR, all: bool = False, no_confirm: bool = False, list_size: int = 0):
     if app_state["dry_run"] and no_confirm is False:
         logging.info(f"{DRY_RUN_PREFIX} Delete everything from {cache_dir}")
         exit(0)
@@ -81,7 +85,7 @@ def clear(cache_dir: Path = IMAGE_DIR, all: bool = False, no_confirm: bool = Fal
     for path in Path(cache_dir).iterdir():
         full_file_name = path.name.split(".")
         if GENERIC_COOL_NAME_FOR_IMAGES in full_file_name[0]:
-            if not full_file_name[1].isnumeric() and not full_file_name[1] == CURRENT_ENVIRONMENT_NAME:
+            if full_file_name[1] == CURRENT_ENVIRONMENT_NAME:
                 continue
     
             valid_files.append(path)
@@ -106,22 +110,18 @@ def clear(cache_dir: Path = IMAGE_DIR, all: bool = False, no_confirm: bool = Fal
             path.unlink()
         return
 
-    ENV_LIST = 3
-    list_environments(cache_dir, ENV_LIST)
-    print(f"Results truncated to {ENV_LIST} results.")
 
-    selected_env: str = Prompt.ask("\nWhich environment do you want to delete?")
+    list_environments(cache_dir, list_size, ignore_current=True)
+    if list_size > 0:
+        logging.warning(f"Results truncated to {list_size} results.")
 
-    deleting_message = "Are you sure you want to delete the selected environment?"
+    selected_env: str = Prompt.ask("\nWhich environment do you want to delete?", choices=[str(x.name.split(".")[1]) for x in valid_files])
 
-    if selected_env == CURRENT_ENVIRONMENT_NAME:
-        deleting_message = "Are you sure you want to delete the current environment symlink? This will not delete the actual file"
-         
     r_you_sure: bool = False 
     if no_confirm:
         r_you_sure = True
     else:
-        r_you_sure = typer.confirm(deleting_message, abort=True)
+        r_you_sure = typer.confirm("Are you sure you want to delete the selected environment?", abort=True)
    
     if not r_you_sure:
         raise typer.Abort()
@@ -181,8 +181,9 @@ def build(
         if GENERIC_COOL_NAME_FOR_IMAGES in full_file_name[0] and full_file_name[1] == CURRENT_ENVIRONMENT_NAME:
             file.unlink()
 
-    logging.warning("Symlinking generated file to current")
+    logging.warning(f"{DEFAULT_PREFIX} Symlinking generated file to current")
     Path(f"{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{CURRENT_ENVIRONMENT_NAME}.tar").symlink_to(TARGET_FILE_NAME)
+
 
 @app.command()
 def rebase(cache_dir: Path = IMAGE_DIR) -> None:
