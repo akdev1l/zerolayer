@@ -21,8 +21,12 @@ IMAGE_DIR = Path(os.environ.get("ZEROLAYER_IMAGE_DIR", "/var/cache/zerolayer"))
 CONTAINERFILE_PATH = Path(os.environ.get(
     "ZEROLAYER_CONTAINERFILE_DIR", "/etc/zerolayer/Containerfile"))
 
-DEFAULT_PREFIX = "[ZEROLAYER]"
-DRY_RUN_PREFIX = "[DRY_RUN]"
+CYAN_COLOR = "\033[96m"
+BLUE_COLOR = "\033[94m"
+DEFAULT_TEXT_COLOR = "\033[0m"
+
+DEFAULT_PREFIX = f"{CYAN_COLOR}[ZEROLAYER]{DEFAULT_TEXT_COLOR}"
+DRY_RUN_PREFIX = f"{BLUE_COLOR}[DRY_RUN]{DEFAULT_TEXT_COLOR}"
 CURRENT_ENVIRONMENT_NAME = "current"
 GENERIC_COOL_NAME_FOR_IMAGES: str = "boot_env"
 
@@ -251,6 +255,53 @@ def init(
         exit(1)
 
     logging.warning(f"{DEFAULT_PREFIX} Initialized successfully in {target_dir}")
+
+
+@app.command()
+def switch(cache_dir: Path = IMAGE_DIR,image_hash: str = ""):
+    if app_state["dry_run"]:
+        logging.info(f"{DRY_RUN_PREFIX} List and choose environments")
+        logging.info(f"{DRY_RUN_PREFIX} Unlink old current environment")
+        logging.info(f"{DRY_RUN_PREFIX} Link selected environment to current")
+        return
+
+    valid_files: list[Path] = [] 
+    for path in Path(cache_dir).iterdir():
+        full_file_name = path.name.split(".")
+        if GENERIC_COOL_NAME_FOR_IMAGES in full_file_name[0]:
+            if full_file_name[1] == CURRENT_ENVIRONMENT_NAME:
+                continue
+    
+            valid_files.append(path)
+
+    if valid_files == []:
+        logging.warning("Could not find any environment")
+        return
+
+    list_environments(cache_dir, 0, ignore_current=True)
+
+    selected_hash: str = Prompt.ask("\nWhich environment do you want to switch to?", choices=[str(x.name.split(".")[1]) for x in valid_files])
+
+    CURRENT_ENV_FILE = Path(f"{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{CURRENT_ENVIRONMENT_NAME}.tar")   
+
+    if CURRENT_ENV_FILE.exists():
+        logging.warning(f"{DEFAULT_PREFIX} Unlinking old current symlink")
+        CURRENT_ENV_FILE.unlink()
+
+    found_env = False
+    target_env: Path = Path()
+    for file in valid_files:
+        if file.name.split(".")[1] == selected_hash:
+            found_env = True
+            target_env = file
+
+    if found_env:
+        CURRENT_ENV_FILE.symlink_to(target_env)
+        proper_final_hash = target_env.name.split(".")[1]
+        logging.warning(f"{DEFAULT_PREFIX} Switched current environment to {proper_final_hash}")
+    else:
+        logging.fatal(f"{DEFAULT_PREFIX} Failed to find environment")
+        exit(1)
 
 
 @app.callback()
