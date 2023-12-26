@@ -2,6 +2,7 @@
 import subprocess as sp
 from pathlib import Path
 import json
+import shutil
 import typer
 import logging
 import os
@@ -196,6 +197,46 @@ def rebase(cache_dir: Path = IMAGE_DIR) -> None:
     logging.warning(f"{DEFAULT_PREFIX} Rebasing to {FULL_IMAGE}")
     if get_current_image() != FULL_IMAGE:
         sp.run(["rpm-ostree", "rebase", FULL_IMAGE])
+
+
+@app.command()
+def init(
+        url: str = "https://github.com/ublue-os/startingpoint", 
+        target_dir: Path = CONTAINERFILE_PATH.parents[0], 
+        no_confirm: bool = False
+):
+    if app_state["dry_run"]:
+        logging.info(f"{DRY_RUN_PREFIX} Delete everything from {target_dir}")
+        logging.info(f"{DRY_RUN_PREFIX} Clone {url} to {target_dir}")
+        return
+
+    if target_dir.exists() and len(os.listdir(target_dir)) > 0:
+        are_you_sure: bool = False 
+        if no_confirm:
+            are_you_sure = True
+        else:
+            are_you_sure = typer.confirm(f"Are you sure you want to delete everything from {target_dir}", abort=True)
+
+        if not are_you_sure:
+            return
+
+        deleted_files = [str(file) for file in target_dir.iterdir()]
+        
+        shutil.rmtree(target_dir)
+
+        logging.warning(f"{DEFAULT_PREFIX} Affected files:\n\t" + "\n\t".join(deleted_files) + "\n")
+    
+    try:
+        gitclone = sp.run(["git","clone",url,str(target_dir)])
+    except FileNotFoundError:
+        logging.fatal(f"{DEFAULT_PREFIX} Could not run Git, is it in your PATH?")
+        exit(1)
+    
+    if gitclone.returncode != 0:
+        logging.fatal(f"{DEFAULT_PREFIX} Failed to initialize in {target_dir}")
+        exit(1)
+
+    logging.warning(f"{DEFAULT_PREFIX} Initialized successfully in {target_dir}")
 
 
 @app.callback()
