@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-import subprocess as sp
 from pathlib import Path
+from rich.prompt import Prompt
+from rich.console import Console
+from rich.table import Table
+import subprocess as sp
 import json
 import shutil
 import typer
@@ -8,7 +11,6 @@ import logging
 import os
 import datetime
 import math
-from rich.prompt import Prompt
 import hashlib
 
 app = typer.Typer()
@@ -49,6 +51,7 @@ def list_environments(cache_dir: Path = IMAGE_DIR, max_shown: int = 0, ignore_cu
         logging.fatal("Failed to find image directory")
         return
 
+    table_list = Table("Filename", "Hash", "Size", "Creation Time")
     envs_found = 0
     # e.g.: boot_env.1HASH.tar.gz boot_env.2HASH.tar.gz boot_env.current.tar.gz
     for path in Path(cache_dir).iterdir():
@@ -64,12 +67,15 @@ def list_environments(cache_dir: Path = IMAGE_DIR, max_shown: int = 0, ignore_cu
                 envs_found += 1
                 continue
             
-            logging.warning(f"Environment {envs_found}:\n\tHash: {full_file_name[1]}\n\tSize: {convert_size(path.stat().st_size)}\n\tCreation Time: {datetime.datetime.fromtimestamp(path.stat().st_mtime)}")
-            
-            envs_found += 1
+            table_list.add_row(path.name, full_file_name[1], convert_size(path.stat().st_size), str(datetime.datetime.fromtimestamp(path.stat().st_mtime)))
 
+            envs_found += 1
+    
     if envs_found == 0:
         logging.warning("Could not find any valid environments")
+        return
+    
+    Console().print(table_list)
 
 
 @app.command()
