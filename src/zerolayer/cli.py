@@ -13,6 +13,7 @@ import os
 import datetime
 import math
 import hashlib
+import inquirer # type: ignore
 
 app = typer.Typer()
 app_state = {"dry_run": False}
@@ -96,7 +97,7 @@ def list_environments(
             envs_found += 1
 
     if envs_found == 0:
-        logging.warning("Could not find any valid environments")
+        logging.warning(f"{DEFAULT_PREFIX} Could not find any valid environments")
         return
 
     Console().print(table_list)
@@ -109,8 +110,8 @@ def clear(
     no_confirm: bool = False,
     list_size: int = 0,
 ):
-    if app_state["dry_run"] and no_confirm is False:
-        logging.info(f"{DRY_RUN_PREFIX} Delete everything from {cache_dir}")
+    if app_state["dry_run"]:
+        logging.info(f"{DRY_RUN_PREFIX} Delete everything (or selected image) from {cache_dir}")
         exit(0)
 
     if not Path(cache_dir).exists():
@@ -141,17 +142,22 @@ def clear(
             raise typer.Abort()
 
         for path in valid_files:
+            if path.is_dir():
+                shutil.rmtree(path)
             path.unlink()
         return
 
     list_environments(cache_dir, list_size, ignore_current=True)
     if list_size > 0:
         logging.warning(f"{DEFAULT_PREFIX} Results truncated to {list_size} results.")
+    
+    try:
+        selected_env = inquirer.prompt([inquirer.List('environment', message="Which environment do you want to delete?", choices=[str(x.name.split(".")[1]) for x in valid_files])])["environment"]
+    except (TypeError, KeyboardInterrupt):
+        raise typer.Abort()
 
-    selected_env: str = Prompt.ask(
-        "\nWhich environment do you want to delete?",
-        choices=[str(x.name.split(".")[1]) for x in valid_files],
-    )
+    if selected_env is None:
+        raise typer.Abort()
 
     r_you_sure: bool = False
     if no_confirm:
@@ -171,12 +177,12 @@ def clear(
             try:
                 file.unlink()
             except OSError:
-                logging.fatal("Failed deleting selected environment")
+                logging.fatal(f"{DEFAULT_PREFIX} Failed deleting selected environment")
                 exit(1)
-            logging.warning("Environment deleted successfully")
+            logging.warning(f"{DEFAULT_PREFIX} Environment deleted successfully")
             return
 
-    logging.warning("Could not delete selected environment")
+    logging.warning(f"{DEFAULT_PREFIX} Could not delete selected environment")
     exit(1)
 
 
@@ -250,16 +256,37 @@ def build(
 
 
 @app.command()
-def rebase(cache_dir: Path = IMAGE_DIR) -> None:
-    FULL_IMAGE: str = f"ostree-unverified-image:oci-archive:{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{CURRENT_ENVIRONMENT_NAME}.tar"
-
+def rebase(cache_dir: Path = IMAGE_DIR, no_confirm: bool = False) -> None:
     if app_state["dry_run"]:
-        logging.info(f"{DRY_RUN_PREFIX} Rebase to {FULL_IMAGE}")
+        logging.info(f"{DRY_RUN_PREFIX} Rebase to selected image or current (default)")
         return
 
-    logging.warning(f"{DEFAULT_PREFIX} Rebasing to {FULL_IMAGE}")
-    if get_current_image() != FULL_IMAGE:
-        sp.run(["rpm-ostree", "rebase", FULL_IMAGE])
+    valid_files: list[Path] = get_valid_image_files(cache_dir)
+    if valid_files == []:
+        logging.warning(f"{DEFAULT_PREFIX} Could not find any environment")
+        return
+
+    if no_confirm:
+        selected_env = CURRENT_ENVIRONMENT_NAME
+    else:
+        try:
+            selected_env = inquirer.prompt([inquirer.List('environment', message="Which environment do you want to rebase to?", choices=[str(x.name.split(".")[1]) for x in valid_files])])["environment"]
+        except (TypeError, KeyboardInterrupt):
+            raise typer.Abort()
+
+        if selected_env is None:
+            raise typer.Abort()
+
+    logging.warning(f"{DEFAULT_PREFIX} Rebasing to {selected_env}")
+    try:
+        rpm_ostree_call = sp.run(["rpm-ostree", "rebase", f"ostree-unverified-image:oci-archive:{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{selected_env}.tar"])
+    except FileNotFoundError:
+        logging.fatal(f"{DEFAULT_PREFIX} Failed finding rpm-ostree, most likely a PATH error.")
+        exit(1)
+
+    if rpm_ostree_call.returncode != 0:
+        logging.fatal(f"{DEFAULT_PREFIX} Failed rebasing to selected image. Consult journalctl for more logs")
+        exit(1)
 
 
 @app.command()
@@ -324,10 +351,13 @@ def switch(cache_dir: Path = IMAGE_DIR, image_hash: str = ""):
         selected_hash = image_hash
     else:
         list_environments(cache_dir, 0, ignore_current=True)
-        selected_hash = Prompt.ask(
-            "\nWhich environment do you want to switch to?",
-            choices=[str(x.name.split(".")[1]) for x in valid_files],
-        )
+        try:
+            selected_hash = inquirer.prompt([inquirer.List('environment', message="Which environment do you want to switch to?", choices=[str(x.name.split(".")[1]) for x in valid_files])])["environment"]
+        except (TypeError, KeyboardInterrupt):
+            raise typer.Abort()
+
+        if selected_hash is None:
+            raise typer.Abort()
 
     CURRENT_ENV_FILE = Path(
         f"{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{CURRENT_ENVIRONMENT_NAME}.tar"
