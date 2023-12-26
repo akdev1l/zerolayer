@@ -31,14 +31,15 @@ DEFAULT_PREFIX = f"{CYAN_COLOR}[ZEROLAYER]{DEFAULT_TEXT_COLOR}"
 DRY_RUN_PREFIX = f"{BLUE_COLOR}[DRY_RUN]{DEFAULT_TEXT_COLOR}"
 CURRENT_ENVIRONMENT_NAME = "current"
 GENERIC_COOL_NAME_FOR_IMAGES: str = "boot_env"
+IMAGE_ARCHIVE_EXTENSION = "tar.gz"
 
 
-def get_valid_image_files(cache_dir: Path) -> list[Path]:
+def get_valid_image_files(cache_dir: Path, no_current: bool = True) -> list[Path]:
     valid_files = []
     for path in Path(cache_dir).iterdir():
         full_file_name = path.name.split(".")
         if GENERIC_COOL_NAME_FOR_IMAGES in full_file_name[0]:
-            if full_file_name[1] == CURRENT_ENVIRONMENT_NAME or path.is_dir():
+            if (no_current and full_file_name[1] == CURRENT_ENVIRONMENT_NAME) or path.is_dir():
                 continue
 
             valid_files.append(path)
@@ -216,7 +217,7 @@ def build(
             logging.fatal(f"Failed creating {cache_dir}")
             exit(1)
 
-    TARGET_FILE_NAME = f"{cache_dir.resolve()}/{GENERIC_COOL_NAME_FOR_IMAGES}.{generate_hash_from_date(str(datetime.datetime.now()))}.tar.gz"
+    TARGET_FILE_NAME = f"{cache_dir.resolve()}/{GENERIC_COOL_NAME_FOR_IMAGES}.{generate_hash_from_date(str(datetime.datetime.now()))}.{IMAGE_ARCHIVE_EXTENSION}"
 
     logging.warning(f"{DEFAULT_PREFIX} Creating oci archive in {cache_dir}")
 
@@ -251,7 +252,7 @@ def build(
 
     logging.warning(f"{DEFAULT_PREFIX} Symlinking generated file to current")
     Path(
-        f"{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{CURRENT_ENVIRONMENT_NAME}.tar"
+        f"{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{CURRENT_ENVIRONMENT_NAME}.{IMAGE_ARCHIVE_EXTENSION}"
     ).symlink_to(TARGET_FILE_NAME)
 
 
@@ -262,7 +263,7 @@ def rebase(cache_dir: Path = IMAGE_DIR, no_confirm: bool = False) -> None:
         switch(cache_dir, "EXAMPLE")
         return
 
-    valid_files: list[Path] = get_valid_image_files(cache_dir)
+    valid_files: list[Path] = get_valid_image_files(cache_dir, no_current=False)
     if valid_files == []:
         logging.warning(f"{DEFAULT_PREFIX} Could not find any environment")
         return
@@ -280,7 +281,7 @@ def rebase(cache_dir: Path = IMAGE_DIR, no_confirm: bool = False) -> None:
 
     logging.warning(f"{DEFAULT_PREFIX} Rebasing to {selected_env}")
     try:
-        rpm_ostree_call = sp.run(["rpm-ostree", "rebase", f"ostree-unverified-image:oci-archive:{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{selected_env}.tar"])
+        rpm_ostree_call = sp.run(["rpm-ostree", "rebase", f"ostree-unverified-image:oci-archive:{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{selected_env}.{IMAGE_ARCHIVE_EXTENSION}"])
     except FileNotFoundError:
         logging.fatal(f"{DEFAULT_PREFIX} Failed finding rpm-ostree, most likely a PATH error.")
         exit(1)
@@ -289,7 +290,8 @@ def rebase(cache_dir: Path = IMAGE_DIR, no_confirm: bool = False) -> None:
         logging.fatal(f"{DEFAULT_PREFIX} Failed rebasing to selected image. Consult journalctl for more logs")
         exit(1)
 
-    switch(cache_dir, selected_env)
+    if selected_env != CURRENT_ENVIRONMENT_NAME:
+        switch(cache_dir, selected_env)
 
 
 @app.command()
@@ -362,7 +364,7 @@ def switch(cache_dir: Path = IMAGE_DIR, image_hash: str = ""):
             raise typer.Abort()
 
     CURRENT_ENV_FILE = Path(
-        f"{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{CURRENT_ENVIRONMENT_NAME}.tar"
+        f"{cache_dir}/{GENERIC_COOL_NAME_FOR_IMAGES}.{CURRENT_ENVIRONMENT_NAME}.{IMAGE_ARCHIVE_EXTENSION}"
     )
 
     if CURRENT_ENV_FILE.exists():
